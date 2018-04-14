@@ -23,12 +23,13 @@ void string2vex(const string &a,vector<int> &b,const string &delim){
 
 }
 const  long long MAX_ITER=1000000;
-const  long long tabu_iter=1000000;
+const  long long tabu_iter=100;
 class HEA{
 private:
     int **graph;
     int **Sol;//解升维，p个种群，N个解
     int ***Population;//每个种群不同颜色数对应的点集合
+    int ***pos;//种群中各顶点对应位置
     int *Best_Sol;//p个种群中最优的解
     int record[3];//选两个冲突最小的种群作为父母
     int *best_f;//各种群历史最小冲突数
@@ -53,7 +54,7 @@ public:
 
     //初始化各数据结构
     void Initialization(){
-        ifstream infile("DSJC125.1.col.txt",ios::in);
+        ifstream infile("DSJC250.1.col.txt",ios::in);
         string delim=" ";
         string str;
         if(!infile.good())
@@ -63,6 +64,7 @@ public:
         }
         vector<int> num;
         Population=new int **[p+1];
+        pos=new int**[p+1];
         f=new int[p+1];
         f_table=new int **[p+1];
         best_f=new int[p+1];
@@ -71,12 +73,15 @@ public:
             f[i]=0;
             best_f[i]=0;
             Population[i]=new int *[K];
-
+            pos[i]=new int *[K];
 
                 for(int k=0;k<K;k++){
-                    Population[i][k] = new int[300];
-                    for(int j=0;j<300;j++)
+                    Population[i][k] = new int[100];
+                    pos[i][k]=new int[500];
+                    for(int j=0;j<100;j++)
                         Population[i][k][j]=0;
+                    for(int j=0;j<500;j++)
+                        pos[i][k][j]=0;
                 }
 
             f_table[i]=new int*[2];
@@ -145,8 +150,8 @@ public:
                         //种群初始化
                         int count=++Population[i][k][0];
                         Population[i][k][count]=j;
+                        pos[i][k][j]=count;
                     }
-
                 }
 
 
@@ -260,6 +265,20 @@ public:
 
     void MakeMove(int pop_num,int &u,int &vi,int &vj, int &delt){
         Sol[pop_num][u]=vj;
+        int node_pos=pos[pop_num][vi][u],count=Population[pop_num][vi][0],final=Population[pop_num][vi][count];
+        //原颜色集合中删除
+        Population[pop_num][vi][node_pos]=final;
+        pos[pop_num][vi][u]=0;
+        pos[pop_num][vi][final]=node_pos;
+        //数量变化
+        Population[pop_num][vi][0]--;
+
+        //新颜色集合中增加
+        Population[pop_num][vj][0]++;
+        int new_pos=Population[pop_num][vj][0];
+        pos[pop_num][vj][u]=new_pos;
+        Population[pop_num][vj][new_pos]=u;
+
         f[pop_num]=f[pop_num]+delt;
         if(best_f[pop_num]>f[pop_num])
             best_f[pop_num]=f[pop_num];
@@ -306,11 +325,11 @@ public:
         int delt;
         int tmp;
         iter=0;
-        while(iter<100&&f[pop_num]>0){
+        while(iter<tabu_iter&&f[pop_num]>0){
             iter++;
             FindMove(pop_num,u,vi,vj,delt);
             MakeMove(pop_num,u,vi,vj,delt);
-            cout<<iter<<" "<<delt<<" "<<f[pop_num]<<endl;
+            //cout<<iter<<" "<<delt<<" "<<f[pop_num]<<endl;
         }
     }
 
@@ -384,6 +403,7 @@ public:
             for(int i=1;i<=V[Vi][0];i++){
                 Population[0][l][i]=V[Vi][i];
                 node=V[Vi][i];
+                pos[0][l][node]=i;
                 //解决方案更新
                 Sol[0][node]=l;
             }
@@ -397,24 +417,36 @@ public:
                 int **the_other=Population[not_choice];
 
                 int k=Sol[not_choice][n];
-                for (int j = 1; j<=the_other[k][0]; j++){
-                    if (the_other[k][j] == n){//在另一父母中删除
-                        the_other[k][j]=the_other[k][the_other[k][0]];
-                        the_other[k][0]--;
-                        break;
-                    }
-                }
-
+                int node_pos=pos[not_choice][k][n],count=the_other[k][0],final=the_other[k][count];
+                //在另一父母中删除
+                the_other[k][node_pos]=final;
+                pos[not_choice][k][final]=node_pos;
+                the_other[k][0]--;
             }
             tmp[0]+=V[Vi][0];
             //清空此颜色集
              V[Vi][0]=0;
         }//结束交叉操作
 
+        //剩余节点随机分配给子代
+        for(int k=0;k<K;k++){
+            int l=rand()%K;
+            if(Population[S1][k][0])
+            {
+                int num=Population[0][l][0];
+                Population[0][l][0]+=Population[S1][k][0];
+                for(int i=1;i<=Population[S1][k][0];i++)
+                {
+                    Population[0][l][i+num]=Population[S1][k][i];
+                    node=Population[S1][k][i];
+                    pos[0][l][node]=i+num;
+                    Sol[0][node]=l;
+                }
+            }
+        }
 
         int size1,size2;
         int k1,k2;
-
         //删除节点随机分配新颜色
         for(int i=1;i<=tmp[0];i++)
         {
@@ -423,6 +455,8 @@ public:
 
             //更新种群信息
             size1=++Population[S1][k1][0],size2=++Population[S2][k2][0];
+            pos[S1][k1][node]=size1;
+            pos[S2][k2][node]=size2;
             Population[S1][k1][size1]=node;
             Population[S2][k2][size2]=node;
 
@@ -431,6 +465,19 @@ public:
                 update_info(S1,node,k1);
             if(k2!=Sol[S2][node])
                 update_info(S2,node,k2);
+        }
+
+        //最优节点变化
+        if(S1==record[0]||S2==record[0]){
+            int min_f=10000;
+            for(int i=1;i<=p;i++)
+            {
+                if(f[i]<min_f)
+                {
+                    min_f=f[i];
+                    record[0]=i;
+                }
+            }
         }
 
         //更新后代的邻接颜色表和冲突信息
@@ -442,7 +489,7 @@ public:
             for (int m = 1; m <= graph[i][0]; m++) {
                     int adj_node = graph[i][m];
                     child_adj_table[adj_node][k]++;
-                    if (Sol[0][i] == Sol[0][adj_node])
+                    if (k== Sol[0][adj_node])
                     {
                         f[0]++;
                         if(!child_f_table[1][i])//冲突表中不存在，则添加此节点
@@ -467,7 +514,8 @@ public:
                 //解和冲突数更新
                 Sol[pop_num][node]=k;
                 f[pop_num]+=Adjacent_Color_Table[pop_num][node][k]-Adjacent_Color_Table[pop_num][node][old_color];
-
+                if(f[pop_num]<0)
+                    cin>>old_color;
                 //邻接节点更新颜色表
                 for(int j=1;j<=graph[node][0];j++)
                 {
@@ -504,7 +552,7 @@ public:
 //                }
 //            }
 //        }
-        //最差解更新
+        //最差解和最优解更新
         int max_f=0;
         for(int i=1;i<=p;i++){
             if(f[i]>=max_f)
@@ -518,21 +566,30 @@ public:
 
         //子代数据复制，替代最差解所在位置
         for(int k=0;k<K;k++){
+            //数目复制
+            Population[worst_sol][k][0]=Population[0][k][0];
             for(int j=1;j<=Population[0][k][0];j++){
                 int  node=Population[0][k][j];
                 Population[worst_sol][k][j]=node;
+                pos[worst_sol][k][node]=j;
                 Sol[worst_sol][node]=Sol[0][node];
-                Adjacent_Color_Table[worst_sol][node][k]=Adjacent_Color_Table[0][node][k];
             }
         }
-        f_table[worst_sol][0][0]=f_table[0][0][0];
-        for(int i=1;i<=f_table[0][0][0];i++) {
-            int node = f_table[0][0][0];
-            f_table[worst_sol][0][i] = node;
-            f_table[worst_sol][1][node] = i;
+
+        for(int i=0;i<N;i++){
+            for(int k=0;k<K;k++)
+                Adjacent_Color_Table[worst_sol][i][k]=Adjacent_Color_Table[0][i][k];
         }
+
+//        f_table[worst_sol][0][0]=f_table[0][0][0];
+//        for(int i=1;i<=f_table[0][0][0];i++) {
+//            int node = f_table[0][0][0];
+//            f_table[worst_sol][0][i] = node;
+//            f_table[worst_sol][1][node] = i;
+//        }
+
         f[worst_sol]=f[0];
-        best_f[worst_sol]=f[0];
+//        best_f[worst_sol]=f[0];
 
         //若子代是最优解，最优解位置被最差解替代
         if(f[0]<f[record[0]]){
@@ -621,6 +678,7 @@ public:
     }
 
 };
+
 
 int main() {
     int K,p;
